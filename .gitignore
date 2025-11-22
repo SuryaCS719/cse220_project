@@ -1,0 +1,17 @@
+# Byte-compiled / caches
+__pycache__/
+
+# macOS
+.DS_Store
+
+# Matplotlib cache
+.matplotlib/
+
+# Generated outputs
+*.json
+*.csv
+*.png
+
+# Generated reports and web frontend
+report/
+web/
