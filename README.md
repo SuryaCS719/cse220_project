@@ -12,6 +12,8 @@ Run the simulator on a trace (addresses can be hex/dec):
 ```bash
 python3 sim.py traces/producer_consumer.trace
 python3 sim.py traces/producer_consumer.trace --false-sharing-fix --log out.csv --json out.json
+# Fix-up modes: optimistic (default when enabled) or conservative (suppress on reads only)
+python3 sim.py traces/producer_consumer.trace --false-sharing-fix --fix-mode conservative
 ```
 
 Plot baseline vs. fix-up stats (use `--json` outputs from above):

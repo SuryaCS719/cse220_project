@@ -31,6 +31,7 @@ class Config:
     word_bytes: int = 4
     fs_threshold: int = 2
     false_sharing_fix: bool = False
+    fix_mode: str = "optimistic"  # optimistic: suppress on different-word; conservative: suppress only on reads
     hit_latency: int = 4
     miss_latency: int = 40
     inv_latency: int = 10
@@ -72,7 +73,7 @@ class Cache:
                 # If another core has it, invalidate them unless fix-up suppresses
                 if line.state in (SHARED, EXCLUSIVE, MODIFIED) and line.owner != core:
                     self._maybe_detect(line, core, word_idx, stats, logger)
-                    if not (line.fs_suspect and cfg.false_sharing_fix and line.last_word != word_idx):
+                    if not self._should_suppress(line, word_idx, is_write):
                         stats["invalidations"] += len(line.sharers - {core})
                         stats["stall_cycles"] += cfg.inv_latency
                         line.sharers = {core}
@@ -87,7 +88,7 @@ class Cache:
                 # read hit
                 if line.state == MODIFIED and line.owner != core:
                     self._maybe_detect(line, core, word_idx, stats, logger)
-                    if not (line.fs_suspect and cfg.false_sharing_fix and line.last_word != word_idx):
+                    if not self._should_suppress(line, word_idx, is_write):
                         stats["invalidations"] += 1
                         stats["stall_cycles"] += cfg.inv_latency
                         line.sharers = {core, line.owner}
@@ -106,7 +107,7 @@ class Cache:
             self._maybe_detect(line, core, word_idx, stats, logger)
             if is_write:
                 if line.state != INVALID and line.owner is not None and line.owner != core:
-                    if not (line.fs_suspect and cfg.false_sharing_fix and line.last_word != word_idx):
+                    if not self._should_suppress(line, word_idx, is_write):
                         stats["invalidations"] += 1
                         stats["stall_cycles"] += cfg.inv_latency
                     else:
@@ -116,7 +117,7 @@ class Cache:
                 line.sharers = {core}
             else:
                 if line.state != INVALID and line.owner is not None and line.owner != core:
-                    if not (line.fs_suspect and cfg.false_sharing_fix and line.last_word != word_idx):
+                    if not self._should_suppress(line, word_idx, is_write):
                         stats["invalidations"] += 1
                         stats["stall_cycles"] += cfg.inv_latency
                     else:
@@ -146,6 +147,18 @@ class Cache:
             stats["suspect_events"] += 1
         else:
             line.fs_conf = max(line.fs_conf - 1, 0)
+
+    def _should_suppress(self, line: CacheLine, word_idx: int, is_write: bool) -> bool:
+        cfg = self.cfg
+        if not cfg.false_sharing_fix:
+            return False
+        if not line.fs_suspect:
+            return False
+        if line.last_word == word_idx:
+            return False
+        if cfg.fix_mode == "conservative" and is_write:
+            return False
+        return True
 
 
 class Logger:
@@ -212,6 +225,7 @@ def main():
     ap.add_argument("--false-sharing-fix", action="store_true", help="Enable fix-up suppression for suspect lines")
     ap.add_argument("--fs-threshold", type=int, default=2, help="Confidence threshold to mark suspect")
     ap.add_argument("--word-bytes", type=int, default=4, help="Word granularity in bytes")
+    ap.add_argument("--fix-mode", choices=["optimistic", "conservative"], default="optimistic", help="Fix-up mode when enabled")
     ap.add_argument("--log", type=str, default=None, help="Path to suspect CSV log")
     ap.add_argument("--json", type=str, default=None, help="Path to write summary stats JSON")
     args = ap.parse_args()
@@ -220,6 +234,7 @@ def main():
         word_bytes=args.word_bytes,
         fs_threshold=args.fs_threshold,
         false_sharing_fix=args.false_sharing_fix,
+        fix_mode=args.fix_mode,
     )
     stats = run_trace(args.trace, cfg, args.log)
     print(json.dumps(stats, indent=2))
